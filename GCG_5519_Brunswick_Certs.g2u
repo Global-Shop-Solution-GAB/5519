@@ -1,0 +1,477 @@
+Program.Sub.Preflight.Start
+V.Global.sOrder.Declare
+V.Global.sOrderLine.Declare
+V.Global.sPckNo.Declare
+V.Global.sTargetFile.Declare
+V.Global.sOption.Declare
+V.Global.sPartPath.Declare
+V.Global.sPartGroup.Declare
+V.Global.sCustOpt.Declare
+V.Global.sCustAllPath.Declare
+V.Global.sCertFilePath.Declare
+V.Global.sPart.Declare
+V.Global.sPckFile.Declare
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Author: GaryB
+'Date: 06/03/19
+'Customer: Brunswick
+'Add gab checkbox to customer master screen, so they can enter if 'MTRs required' when they ship an order
+'Add custom table to store customer and if the MTR/cert checkbox should be checked.
+'GCG_5519_Brunswick_Certs.g2u 
+V.Local.sError.Declare
+V.Local.bExists.Declare
+V.Local.sSql.Declare
+V.Local.sCustomer.Declare
+V.Local.sCerts.Declare
+V.Local.sLine.Declare
+V.Local.sFileString.Declare
+V.Local.sFile.Declare
+V.Local.bFileCheck.Declare
+V.Local.iRowCount.Declare
+V.Local.iCnt.Declare
+V.Local.sPart.Declare
+V.Local.iArrayStep.Declare
+V.Local.sTemp.Declare
+F.Intrinsic.Control.Try
+
+'open DB connection
+'F.ODBC.Connection!Con.OpenCompanyConnection
+'F.ODBC.Connection!Con.TableExists("GCG_5519_CERTS_REQ",v.Local.bExists)
+'F.Intrinsic.Control.If(v.Local.bExists,=,False)
+'	F.Intrinsic.Control.End
+'F.Intrinsic.Control.EndIf
+''close db connection
+'F.ODBC.Connection!con.Close
+
+F.Intrinsic.Control.SelectCase(V.Caller.Hook)
+'	populate hook on customer header screen
+	F.Intrinsic.Control.Case(14350)
+'		see if customer has the certs requested checkbox turned on
+		V.Local.sCustomer.Set(v.Passed.000002.rtrim)
+		F.Intrinsic.String.Build("Select CUSTOMER,Certs_Req from GCG_5519_CERTS_REQ WHERE CUSTOMER = '{0}';",v.Local.sCustomer,v.Local.sSql)
+'		F.ODBC.Connection!Con.ExecuteandReturn(v.Local.sSql,v.Local.sCerts)
+		F.ODBC.Connection!con.OpenCompanyConnection
+		F.ODBC.Connection!con.OpenRecordsetRW("rstCustCert",V.Local.sSQL)
+		F.Intrinsic.Control.If(V.ODBC.con!rstCustCert.EOF)
+			F.ODBC.con!rstCustCert.AddNew
+			F.ODBC.con!rstCustCert.Set!CUSTOMER(V.Local.sCustomer) 
+			F.ODBC.con!rstCustCert.Update
+		F.Intrinsic.Control.Endif
+'		set up gab label and checkbox on the customer header screen
+		F.Intrinsic.Variable.SetProperty("GAB-LBL-1","PL",433)
+		F.Intrinsic.Variable.SetProperty("GAB-LBL-1","PT",537)
+		F.Intrinsic.Variable.SetProperty("GAB-CHK-1","PL",411)
+		F.Intrinsic.Variable.SetProperty("GAB-CHK-1","PT",537)
+		V.Passed.GAB-LBL-1.Set("Require MTRs")
+		F.Intrinsic.Control.If(v.ODBC.con!rstCustCert.fieldval!Certs_Req,=,"Y")
+			V.Passed.GAB-CHK-1.Set("Y")
+		F.Intrinsic.Control.Else
+			V.Passed.GAB-CHK-1.Set("N")
+		F.Intrinsic.Control.EndIf
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.GAB-CHK-1,"LOCK",0)
+		F.ODBC.con!rstCustCert.Close
+		F.ODBC.Connection!con.Close
+		
+'	pre-save hook on customer header screen
+	F.Intrinsic.Control.Case(14384) 
+		 V.Local.sCustomer.Set(V.Passed.000002.RTrim)
+		 V.Local.sCerts.Set(V.Passed.GAB-CHK-1)
+		 F.ODBC.Connection!con.OpenCompanyConnection 
+		 F.Intrinsic.String.Build("Update GCG_5519_CERTS_REQ SET CERTS_REQ = '{0}' WHERE CUSTOMER = '{1}';",V.Local.sCerts,V.Local.sCustomer,V.Local.sSql)
+		 F.ODBC.Connection!Con.Execute(V.Local.sSql)
+		 F.ODBC.Connection!con.Close
+'	ship button on order entry - staging screen - shp700 screen shp700s1 (pre hook)
+	F.Intrinsic.Control.Case(38424)
+		F.Intrinsic.BDF.Load("PartNoBDF","AUX001")
+		F.Intrinsic.BDF.ReadRowCount("PartNoBDF",v.Local.iRowCount)
+		F.Intrinsic.Math.Sub(V.Local.iRowCount,1,V.Local.iRowCount)
+		F.Intrinsic.String.Build("{1}{0}{2}{0}{3}{0}{4}",V.Ambient.NewLine,V.Passed.shp700s7_000190,v.Passed.000058.RTrim,V.Passed.FIRST-ORDER,V.Passed.000006,V.Local.sFileString)
+		
+		F.Intrinsic.Control.For(V.Local.iCnt,0,V.Local.iRowCount,1)
+			F.Intrinsic.BDF.TextMatrix("PartNoBDF",4,V.Local.iCnt,V.Local.sPart)
+			F.Intrinsic.BDF.TextMatrix("PartNoBDF",2,V.Local.iCnt,V.Local.sLine)
+			F.Intrinsic.String.Build("{0}{1}{2}*!*{3}",V.Local.sFileString,V.Ambient.NewLine,V.Local.sPart.Trim,V.Local.sLine.Trim,V.Local.sFileString)
+		F.Intrinsic.Control.Next(V.Local.iCnt)
+		
+		F.Intrinsic.String.Build("{0}GCG_5519_EmailFile_{1}_{2}.txt",V.Caller.LocalGSSTempDir,V.Caller.CompanyCode,V.Caller.Terminal,V.Local.sFile)
+		F.Intrinsic.File.String2File(V.Local.sFile,V.Local.sFileString)
+	F.Intrinsic.Control.Case(29710)
+		'Process Hook
+		F.Intrinsic.String.Build("{0}GCG_5519_EmailFile_{1}_{2}.txt",V.Caller.LocalGSSTempDir,V.Caller.CompanyCode,V.Caller.Terminal,V.Local.sFile)
+		F.Intrinsic.File.Exists(V.Local.sFile,V.Local.bFileCheck)
+		F.Intrinsic.Control.If(V.Local.bFileCheck,=,True,"and",V.Passed.009000,=,"SO03")
+			F.Intrinsic.File.File2String(V.Local.sFile,V.Local.sFileString)
+			F.Intrinsic.String.Split(V.Local.sFileString,V.Ambient.NewLine,V.Local.sFileString)
+			F.Intrinsic.String.Split(V.Local.sFileString(4),"*!*",V.Local.sTemp)
+			V.Local.sPart.Set(V.Local.sTemp(0))
+			V.Local.sLine.Set(V.Local.sTemp(1))
+			V.Local.iArrayStep.Set(1)
+			F.Intrinsic.Control.For(V.Local.iCnt,5,V.Local.sFileString.UBound,1)
+				V.Local.sPart.RedimPreserve(0,V.Local.iArrayStep)
+				V.Local.sLine.RedimPreserve(0,V.Local.iArrayStep)
+				F.Intrinsic.String.Split(V.Local.sFileString(V.Local.iCnt),"*!*",V.Local.sTemp)
+				V.Local.sPart(V.Local.iArrayStep).Set(V.Local.sTemp(0))
+				V.Local.sLine(V.Local.iArrayStep).Set(V.Local.sTemp(1))
+				F.Intrinsic.Math.Add(V.Local.iArrayStep,1,V.Local.iArrayStep)
+			F.Intrinsic.Control.Next(V.Local.iCnt)
+			F.Intrinsic.String.Join(V.Local.sPart,"*!*",V.Local.sPart)
+			F.Intrinsic.String.Join(V.Local.sLine,"*!*",V.Local.sLine)
+			V.Local.sPart.RedimPreserve(0,0)
+			V.Local.sLine.RedimPreserve(0,0)
+			F.Intrinsic.Control.CallSub(CheckCerts,"Certs",V.Local.sFileString(0),"Cust",V.Local.sFileString(1),"Order",V.Local.sFileString(2),"PckNo",V.Local.sFileString(3),"PartArr",V.Local.sPart,"LineArr",V.Local.sLine)
+			F.Intrinsic.Control.CallSub(SetupEmailFile,"Order",V.Local.sFileString(2))
+			F.Intrinsic.File.DeleteFile(V.Local.sFile)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Case(38422)
+		'Post Exit Hook
+		F.Intrinsic.String.Build("{0}GCG_5519_EmailFile_{1}_{2}.txt",V.Caller.LocalGSSTempDir,V.Caller.CompanyCode,V.Caller.Terminal,V.Local.sFile)
+		F.Intrinsic.File.Exists(V.Local.sFile,V.Local.bFileCheck)
+		F.Intrinsic.Control.If(V.Local.bFileCheck,=,True)
+			F.Intrinsic.File.DeleteFile(V.Local.sFile)
+		F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.EndSelect
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Caller.ScriptFile,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.SetupEmailFile.Start
+V.Local.sError.Declare
+V.Local.iUserID.Declare
+V.Local.sSubject.Declare
+V.Local.sSender.Declare
+V.Local.sRecipient.Declare
+V.Local.iRunID.Declare
+V.Local.iLogID.Declare
+V.Local.sValue.Declare
+V.Local.sParam.Declare
+V.Local.sPackTxt.Declare
+V.Local.sSql.Declare
+V.Local.sRetFile.Declare
+V.Local.sDir.Declare
+V.Local.sFile.Declare
+V.Local.sFileName.Declare
+F.Intrinsic.Control.Try
+
+'F.ODBC.Connection!Con.OpenCompanyConnection
+'F.Intrinsic.String.Build("SELECT DISTINCT ORDER_NO, CUSTOMER FROM V_BI_PACKING_LIST WHERE TERMINAL = '{0}' AND RPTID = '000051'",v.Caller.Terminal,v.Local.sSQL)
+'F.ODBC.Connection!Con.OpenLocalRecordsetRO("rstList",v.Local.sSQL)
+
+'Set attachment filename and path
+'F.Intrinsic.String.Build("{0}",V.Caller.TempDir,V.Local.sDir)
+'F.Intrinsic.String.Build("{0}.pdf","Packlist",V.Local.sFileName)
+''String for queue message
+'F.Intrinsic.String.Build("{1}\{0}",V.Local.sFileName,V.Local.sDir,V.Local.sFile)
+
+'F.Global.BI.GetRunID(v.Local.iRunID)
+'F.Global.BI.StartLogging(v.Local.iRunID,000051,-1,"",v.Local.iLogID)
+
+'V.Local.sParam.Set("Terminal*!*REPORTID*!*PCKNO")
+''V.Local.sValue.Set("003*!*000051*!*0000002")
+''need to send a "Y" for the pckno parameter field
+'F.Intrinsic.String.Build("{0}*!*{1}*!*{2}",v.Caller.Terminal,"000051","Y",v.Local.sValue)
+'F.Global.BI.StopLogging(v.Local.iLogID)
+
+
+
+'F.ODBC.Con!rstList.Close
+'F.ODBC.Connection!Con.Close
+'F.Intrinsic.String.Build("{0}\PACKLIST_{1}",V.System.Temp,V.Caller.Terminal,V.Local.sRetFile)
+
+'F.Global.BI.RunReportPreProcessor(v.Local.iRunID,v.Local.iLogID,v.Local.sParam,v.Local.sValue,"",20,True,"",-1,"",0,v.Local.sFile,"",v.Local.iLogID)
+
+F.Global.Security.GetUserId(V.Caller.User,V.Caller.CompanyCode,V.Local.iUserID)
+F.Global.Security.GetUserEmail(V.Caller.User,V.Local.sSender)
+F.Intrinsic.String.Build("{0}*!*",V.Local.sSender,V.Local.sSender)
+
+V.Local.sSubject.Set("Packing List and MTR")
+'get email from order_bill_to table
+F.ODBC.Connection!Con.OpenCompanyConnection  
+F.Intrinsic.String.Build("SELECT CONTACT_EMAIL FROM V_ORDER_BILL_TO WHERE ORDER_NO = '{0}'",V.Args.Order,V.Local.sSQL)
+F.ODBC.Connection!Con.ExecuteandReturn(V.Local.sSQL,V.Local.sRecipient)
+F.ODBC.Connection!Con.Close
+F.Intrinsic.Control.If(V.Local.sRecipient.Length,>,0)
+	F.Intrinsic.String.Build("*!*{0}",V.Local.sRecipient.Trim,V.Local.sRecipient)
+F.Intrinsic.Control.EndIf
+
+'get archive email if it is setup
+F.Intrinsic.String.Build("{0}\GCG_5519_Archive_Email.data",V.Caller.FilesDir,V.Local.sFile)
+F.Intrinsic.File.File2String(V.Local.sFile,V.Local.sFile)
+F.Intrinsic.Control.If(V.Local.sFile,!=,"Name*!*Email")
+	F.Intrinsic.Control.If(V.Local.sRecipient.Length,>,0)
+		F.Intrinsic.String.Build("{0}@!@",V.Local.sRecipient,V.Local.sRecipient)
+	F.Intrinsic.Control.EndIf
+	F.Intrinsic.String.Build("{0}{1}",V.Local.sRecipient,V.Local.sFile,V.Local.sRecipient)
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.If(V.Local.sRecipient.Length,=,0)
+	'No receipients to be emailed to, exiting
+	F.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.If(V.Global.sCertFilePath.Length,>,0)
+	F.Intrinsic.String.Build("{0}*!*{1}@!@{2}",V.Global.sPckFile,V.Caller.LocalGSSTempDir,V.Global.sCertFilePath,V.Local.sFile)
+F.Intrinsic.Control.Else
+	F.Intrinsic.String.Build("{0}*!*{1}",V.Global.sPckFile,V.Caller.LocalGSSTempDir,V.Local.sFile)
+F.Intrinsic.Control.EndIf
+F.Global.Messaging.QueueMessage(V.Caller.CompanyCode,V.Local.iUserID,"GCG_5519",V.Local.sSubject,V.Local.sSender,V.Local.sRecipient,"Please see attached documents",-1,"",False,"","","","","","","",V.Local.sFile,False)
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Caller.ScriptFile,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.SetupEmailFile.End
+
+Program.Sub.CheckCerts.Start
+V.Local.sError.Declare
+V.Local.sSql.Declare
+V.Local.sCust.Declare
+V.Local.sCerts.Declare
+F.Intrinsic.Control.Try
+
+F.Intrinsic.Control.If(V.Args.Certs,=,"Y")	
+	F.Intrinsic.Control.CallSub(AddCerts,"Order",V.Args.Order,"PckNo",V.Args.PckNo,"PartArr",V.Args.PartArr,"LineArr",V.Args.LineArr)
+F.Intrinsic.Control.Else	
+	F.ODBC.Connection!Con.OpenCompanyConnection
+	F.Intrinsic.String.Build("Select CERTS_REQ FROM GCG_5519_CERTS_REQ WHERE CUSTOMER = '{0}'",V.Args.Cust,V.Local.sSql)
+	F.ODBC.Connection!Con.ExecuteandReturn(V.Local.sSql,V.Local.sCerts)
+	F.ODBC.Connection!Con.Close	
+	F.Intrinsic.Control.If(V.Local.sCerts,=,"Y")
+		F.Intrinsic.Control.CallSub(AddCerts,"Order",V.Args.Order,"PckNo",V.Args.PckNo,"PartArr",V.Args.PartArr,"LineArr",V.Args.LineArr)
+	F.Intrinsic.Control.Else
+		F.Intrinsic.UI.Msgbox("Certs are not attached to this order")
+	F.Intrinsic.Control.EndIf
+'	F.ODBC.Connection!Con.Close
+F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Caller.ScriptFile,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.CheckCerts.End
+
+Program.Sub.AddCerts.Start
+V.Local.sError.Declare
+V.Local.sSql.Declare
+V.Local.iRunID.Declare
+V.Local.iLogID.Declare
+V.Local.sParams.Declare
+V.Local.sValues.Declare
+V.Local.sFile.Declare
+V.Local.sParameters.Declare
+V.Local.sOrder.Declare
+V.Local.sPckNo.Declare
+V.Local.sTerminal.Declare
+V.Local.sLogo.Declare
+V.Local.sRptID.Declare
+F.Intrinsic.Control.Try
+
+F.Intrinsic.String.LPad(V.Args.Order,"0",7,V.Local.sOrder)
+F.Intrinsic.String.LPad(V.Args.PckNo,"0",7,V.Local.sPckNo)
+F.ODBC.Connection!Con.OpenCompanyConnection
+'see if the packing list is already created
+'F.Intrinsic.String.Build("SELECT ORDER_NO FROM V_BI_PACKING_LIST WHERE TERMINAL = '{0}' AND RPTID = '000051' AND ORDER_NO = '{1}'",v.Caller.Terminal,V.Global.sOrder,v.Local.sSQL)
+'F.ODBC.Connection!Con.OpenLocalRecordsetRO("rstList",v.Local.sSQL)
+'F.Global.BI.GetRunID(v.Local.iRunID)
+'F.Global.BI.StartLogging(v.Local.iRunID,000051,-1,"",v.Local.iLogID)
+'V.Local.sParam.Set("Terminal*!*REPORTID*!*PCKNO")
+'need to send a "Y" for the pckno parameter field
+'F.Intrinsic.String.Build("{0}*!*{1}*!*{2}",v.Caller.Terminal,"000051","Y",v.Local.sValue)
+'F.Global.BI.StopLogging(v.Local.iLogID)
+'F.Intrinsic.Control.If(v.ODBC.Con!rstList.FieldCount,=,0)
+'	need to create the packing list info in the bi_packing_list table
+	F.Intrinsic.String.ConcatCallWrapperArgs(V.Local.sOrder,V.Local.sOrder,"","Y","Y","N","Y",V.Local.sPckNo,"","","|~|CRYSTAL-OVERRIDE|~|",V.Local.sParameters)
+	F.Global.General.CallWrapperSyncBIO(910070,V.Local.sParameters)
+	'need to make sure the cert_req field is set to 'Y' in the v_bi_packing_list table, since we can't turn it on the screen
+	F.Intrinsic.String.LPad(V.Caller.Terminal,"0",3,V.Local.sTerminal)
+	F.Global.General.ReadOption("401046",1,"***NOT FOUND***",V.Local.sLogo)
+'IF ((FLAG_SHIPMENT_TYPE = 'S' AND INVOICE > ''), ' * ', ' ') AS "Combine" 
+	F.Intrinsic.String.Build("select IF ((FLAG_SHIPMENT_TYPE = 'S' AND INVOICE > ''), '000110', '000051') from V_SHIPMENT_HEADER where ORDER_NO = '{0}' and PCK_NO = '{1}'",V.Local.sOrder,V.Local.sPckNo,V.Local.sSql)
+	F.ODBC.Connection!con.ExecuteAndReturn(V.Local.sSql,V.Local.sRptID)
+	V.Local.sParams.Set("Terminal*!*REPORTID*!*PCKNO*!*Logo")
+	F.Intrinsic.String.Build("{0}*!*{1}*!*{2}*!*",V.Local.sTerminal,V.Local.sRptID,"Y",V.Local.sValues)
+	F.Intrinsic.Control.If(V.Local.sLogo,!=,"***NOT FOUND***")
+		F.Intrinsic.String.Build("{0}{1}",V.Local.sValues,V.Local.sLogo,V.Local.sValues)
+	F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.If(V.Local.sRptID,=,"000110")
+		F.Intrinsic.String.Build("{0}*!*SHIPLABEL",V.Local.sParams,V.Local.sParams)
+		F.Intrinsic.String.Build("{0}*!*",V.Local.sValues,V.Local.sValues)
+		F.Intrinsic.String.Build("Update BI_PACKING_LIST set cert_encl = 'Y' where TERMINAL = '{0}' and RPTID = '000110' and ORDER_NO = '{1}'",v.Caller.Terminal,V.Local.sOrder,v.Local.sSql)
+		F.ODBC.Connection!Con.Execute(v.Local.sSql)
+	F.Intrinsic.Control.Else
+		F.Intrinsic.String.Build("Update BI_PACKING_LIST set cert_encl = 'Y' where TERMINAL = '{0}' and RPTID = '000051' and ORDER_NO = '{1}'",v.Caller.Terminal,V.Local.sOrder,v.Local.sSql)
+		F.ODBC.Connection!Con.Execute(v.Local.sSql)	
+	F.Intrinsic.Control.EndIf
+	F.Intrinsic.String.Build("PackList_{0}.pdf",V.Local.sPckNo,V.Global.sPckFile)
+	F.Intrinsic.String.Build("{0}{1}",V.Caller.LocalGSSTempDir,V.Global.sPckFile,V.Local.sFile)
+	F.Intrinsic.String.Split(V.Local.sParams,"*!*",V.Local.sParams)
+	F.Intrinsic.String.Split(V.Local.sValues,"*!*",V.Local.sValues)
+	F.Global.BI.SaveReport(V.Local.sRptID.Long,1,V.Local.sParams,V.Local.sValues,V.Local.sFile)
+	F.Intrinsic.task.ShellExec(V.Caller.Handle,"PRINT",V.local.sFile,"","",5)
+'F.Intrinsic.Control.EndIf
+
+'F.Intrinsic.Control.CallSub(CheckOptions)
+F.Intrinsic.Control.CallSub(LotInfoCheck,"PckNo",V.Local.sPckNo,"Order",V.Local.sOrder,"PartArr",V.Args.PartArr,"LineArr",V.Args.LineArr)
+F.ODBC.Connection!Con.Close
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Caller.ScriptFile,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.AddCerts.End
+
+Program.Sub.CheckOptions.Start
+V.Local.sError.Declare
+F.Intrinsic.Control.Try
+	
+F.ODBC.Connection!con.ExecuteAndReturn("Select Path From Gab_4477_Lot_Part Where Part = '000000OPT';",V.Global.sOption)
+V.Global.sOption.Set(V.Global.sOption.Trim)
+F.Intrinsic.Control.SelectCase(V.Global.sOption.Trim)
+	F.Intrinsic.Control.Case("C")
+		F.ODBC.Connection!con.ExecuteAndReturn("Select Name,Path From Gab_4477_Lot_Cust Where Cust = '000000';",V.Global.sCustOpt)
+		F.Intrinsic.String.Split(V.Global.sCustOpt,"*!*",V.Global.sCustOpt)
+		V.Global.sCustAllPath.Set(V.Global.sCustOpt(1).Trim)
+		V.Global.sCustOpt.Set(V.Global.sCustOpt(0).Trim)
+
+	F.Intrinsic.Control.Case("P")
+		F.ODBC.Connection!con.ExecuteAndReturn("Select Path From Gab_4477_Lot_Part Where Part = '000000';",V.Global.sPartPath)
+		F.ODBC.Connection!con.ExecuteAndReturn("Select Path From Gab_4477_Lot_Part Where Part = '000000GR';",V.Global.sPartGroup)
+
+	F.Intrinsic.Control.CaseElse
+		F.Intrinsic.UI.Msgbox("Please setup Material Cert Pack first.","Check Options")
+		F.ODBC.Connection!con.Close
+		F.Intrinsic.Control.End
+F.Intrinsic.Control.EndSelect
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Caller.ScriptFile,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.CheckOptions.End
+
+Program.Sub.LotInfoCheck.Start
+V.Local.sError.Declare
+V.Local.iCnt.Declare
+V.Local.iCnt2.Declare
+V.Local.sPart.Declare
+V.Local.sLoc.Declare
+V.Local.sLot.Declare
+V.Local.sBin.Declare
+V.Local.sHeat.Declare
+V.Local.sSerial.Declare
+V.Local.sIDLink.Declare
+V.Local.iIDLink.Declare
+V.Local.sSql.Declare
+V.Local.sPath.Declare
+V.Local.sFile.Declare
+V.Local.iRowCount.Declare
+V.Local.sPartList.Declare
+V.Local.sLineList.Declare
+V.Local.sSeq.Declare
+V.Local.iLotBin.Declare
+V.Local.sRet.Declare
+F.Intrinsic.Control.Try
+
+F.Intrinsic.Control.If(V.DataTable.dtLotInfoCheck.Exists)
+	F.Data.DataTable.Close("dtLotInfoCheck")
+F.Intrinsic.Control.EndIf
+
+F.Data.DataTable.Create("dtJobs",True)
+F.Data.DataTable.AddColumn("dtJobs","JOB","String")
+F.Data.DataTable.AddColumn("dtJobs","SUFFIX","String")
+F.Data.DataTable.Create("dtLink",True)
+F.Data.DataTable.AddColumn("dtLink","PATH","String")
+F.Data.DataTable.AddColumn("dtLink","FILE","String")
+F.Intrinsic.String.Split(V.Args.PartArr,"*!*",V.Local.sPartList)
+F.Intrinsic.String.Split(V.Args.LineArr,"*!*",V.Local.sLineList)
+F.Intrinsic.Control.For(V.Local.iCnt,0,V.Local.sPartList.UBound,1)
+	F.Intrinsic.String.Build("select right(SEQ, 3) from V_STAGING_QUANTITY where PCK_NO = '{0}' and ORDER_NO = '{1}' and LINE = '{2}' + '0';",V.Args.PckNo,V.Args.Order,V.Local.sLineList(V.Local.iCnt),V.Local.sSQL)
+	F.ODBC.Connection!con.ExecuteAndReturn(V.Local.sSQL,V.Local.sSeq)
+	F.Intrinsic.String.Build("select PART,LOCATION,LOT,BIN,HEAT,SERIAL_NUMBER from V_ITEM_MASTER where PART = '{0}' and SERIAL_NUMBER = '{1}-{2}-{3}';",V.Local.sPartList(V.Local.iCnt),V.Args.Order,V.Local.sSeq,V.Local.sLineList(V.Local.iCnt),V.Local.sSQL)
+	F.ODBC.Connection!con.ExecuteAndReturn(V.Local.sSQL,V.Local.sRet)
+	F.Intrinsic.String.Split(V.Local.sRet,"*!*",V.Local.sRet)
+	'0 - Part; 1 - Loc; 2 - Lot; 3 - Bin; 4 - Heat; 5 - Serial
+	F.Intrinsic.String.RPad(V.Local.sRet(0)," ",20,V.Local.sPart)
+	F.Intrinsic.String.RPad(V.Local.sRet(1)," ",2,V.Local.sLoc)
+	F.Intrinsic.String.RPad(V.Local.sRet(2)," ",15,V.Local.sLot)
+	F.Intrinsic.String.RPad(V.Local.sRet(3)," ",6,V.Local.sBin)
+	F.Intrinsic.String.RPad(V.Local.sRet(4)," ",15,V.Local.sHeat)
+	F.Intrinsic.String.RPad(V.Local.sRet(5)," ",30,V.Local.sSerial)
+	F.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}",V.Local.sPart,V.Local.sLoc,V.Local.sLot,V.Local.sBin,V.Local.sHeat,V.Local.sSerial,V.Local.sIDlink)
+	F.Global.DocumentControl.GetLinkID(V.Local.sIDLink,31,V.Local.iIDLink)
+	F.Intrinsic.String.Build("Select rtrim(PATH) as PATH,rtrim(FILE) as FILE from ATG_DOC_ASSOC Where LINK_ID = '{0}';",V.Local.iIDLink,V.Local.sSQL)
+	F.Data.DataTable.CreateFromSQL("dtLinkLotBin","con",V.Local.sSql,True)
+	F.Data.DataTable.Merge("dtLinkLotBin","dtLink",True,3)
+	F.Data.DataTable.Close("dtLinkLotBin")
+	
+	'Get documents from allocated bin
+	F.Intrinsic.String.Build("Select PART,LOCATION,LOT,BIN,HEAT,SERIAL_NUMBER from V_ITEM_MASTER Where PART = '{0}' and SERIAL_NUMBER <> '{1}-{2}-{3}' and LOT = '{4}';",V.Local.sPartList(V.Local.iCnt),V.Args.Order,V.Local.sSeq,V.Local.sLineList(V.Local.iCnt),V.Local.sRet(2),V.Local.sSQL)
+'	F.Intrinsic.String.Build("Select PART,LOCATION,LOT,BIN,HEAT,SERIAL_NUMBER from V_ITEM_MASTER Where PART = '{0}' ;",V.Local.sPartList(V.Local.iCnt),V.Local.sSQL)
+	F.Data.DataTable.CreateFromSQL("dtLotInfoCheck","con",V.Local.sSQL,True)
+	F.Intrinsic.Control.For(V.Local.iLotBin,0,V.DataTable.dtLotInfoCheck.RowCount--,1)
+'		need to check item_master for part and J52 code this will give us the jobs - could have more than 1
+'		get the jobs associated with the J52 code
+		F.Intrinsic.String.Build("Select JOB,SUFFIX from V_ITEM_HISTORY Where PART = '{0}' and CODE_TRANSACTION = 'J52' and LOCATION = '{1}' and LOT = '{2}' and BIN = '{3}' and HEAT = '{4}' and SERIAL_NUMBER = '{5}' ;",V.DataTable.dtLotInfoCheck(V.Local.iLotBin).PART!FieldValTrim,V.DataTable.dtLotInfoCheck(V.Local.iLotBin).LOCATION!FieldValTrim,V.DataTable.dtLotInfoCheck(V.Local.iLotBin).LOT!FieldValTrim,V.DataTable.dtLotInfoCheck(V.Local.iLotBin).BIN!FieldValTrim,V.DataTable.dtLotInfoCheck(V.Local.iLotBin).HEAT!FieldValTrim,V.DataTable.dtLotInfoCheck(V.Local.iLotBin).SERIAL_NUMBER!FieldValTrim,v.Local.sSQL)
+		F.Data.DataTable.CreateFromSQL("dtJobsForLotBin","con",V.Local.sSQL,True)
+		F.Data.DataTable.Merge("dtJobsForLotBin","dtJobs",True,3)
+		F.Data.DataTable.Close("dtJobsForLotBin")
+	F.Intrinsic.Control.Next(V.Local.iLotBin)
+	F.Data.DataTable.Close("dtLotInfoCheck")
+F.Intrinsic.Control.Next(V.Local.iCnt)
+
+F.Data.DataView.Create("dtJobs","dvJobs",22)
+F.Data.DataView.ToDataTableDistinct("dtJobs","dvJobs","dtJobsDistinct","JOB*!*SUFFIX",True)
+F.Data.DataTable.Close("dtJobs")
+
+F.Intrinsic.Control.For(V.Local.iCnt,0,V.DataTable.dtJobsDistinct.RowCount--,1)
+'	Get the item master records that are associated with the Job J55 transactions
+	F.Intrinsic.String.Build("Select PART,LOCATION,LOT,BIN,HEAT,SERIAL_NUMBER from V_ITEM_HISTORY Where JOB = '{0}' and SUFFIX = '{1}' and CODE_TRANSACTION = 'J55';",V.DataTable.dtJobsDistinct(V.Local.iCnt).JOB!FieldValTrim,V.DataTable.dtJobsDistinct(V.Local.iCnt).SUFFIX!FieldValTrim,V.Local.sSql)
+	F.Data.DataTable.CreateFromSQL("dtLotInfoCheck","con",V.Local.sSql,True)
+	F.Intrinsic.Control.For(V.Local.iLotBin,0,V.DataTable.dtLotInfoCheck.RowCount--,1)
+'		Loop through Item Master records and get their attached docs
+		F.Intrinsic.String.RPad(V.DataTable.dtLotInfoCheck(V.Local.iLotBin).PART!FieldValTrim," ",20,V.Local.sPart)
+		F.Intrinsic.String.RPad(V.DataTable.dtLotInfoCheck(V.Local.iLotBin).LOCATION!FieldValTrim," ",2,V.Local.sLoc)
+		F.Intrinsic.String.RPad(V.DataTable.dtLotInfoCheck(V.Local.iLotBin).LOT!FieldValTrim," ",15,V.Local.sLot)
+		F.Intrinsic.String.RPad(V.DataTable.dtLotInfoCheck(V.Local.iLotBin).BIN!FieldValTrim," ",6,V.Local.sBin)
+		F.Intrinsic.String.RPad(V.DataTable.dtLotInfoCheck(V.Local.iLotBin).HEAT!FieldValTrim," ",15,V.Local.sHeat)
+		F.Intrinsic.String.RPad(V.DataTable.dtLotInfoCheck(V.Local.iLotBin).SERIAL_NUMBER!FieldValTrim," ",30,V.Local.sSerial)
+		F.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}",V.Local.sPart,V.Local.sLoc,V.Local.sLot,V.Local.sBin,V.Local.sHeat,V.Local.sSerial,V.Local.sIDlink)
+		F.Global.DocumentControl.GetLinkID(V.Local.sIDLink,31,V.Local.iIDLink)
+'		Get link list
+		F.Intrinsic.String.Build("Select rtrim(PATH) as PATH,rtrim(FILE) as FILE from ATG_DOC_ASSOC Where LINK_ID = '{0}';",V.Local.iIDLink,V.Local.sSQL)
+		F.Data.DataTable.CreateFromSQL("dtLinkLotBin","con",V.Local.sSql,True)
+		F.Data.DataTable.Merge("dtLinkLotBin","dtLink",True,3)
+		F.Data.DataTable.Close("dtLinkLotBin")
+	F.Intrinsic.Control.Next(V.Local.iLotBin)
+	F.Data.DataTable.Close("dtLotInfoCheck")
+F.Intrinsic.Control.Next(V.Local.iCnt)
+F.Data.DataTable.Close("dtJobsDistinct")
+
+F.Data.DataView.Create("dtLink","dvLink",22)
+F.Data.DataView.ToDataTableDistinct("dtLink","dvLink","dtLinkDistinct","PATH*!*FILE",True)
+F.Data.DataTable.Close("dtLink")
+F.Data.DataView.Create("dtLinkDistinct","dvLinkDistinct",22)
+F.Data.DataView.ToString("dtLinkDistinct","dvLinkDistinct","FILE*!*PATH","*!*","@!@",V.Global.sCertFilePath)
+
+F.Intrinsic.Control.For(V.Local.iCnt,0,V.DataTable.dtLinkDistinct.RowCount--,1)
+	F.Intrinsic.String.Build("{0}{1}",V.DataTable.dtLinkDistinct(V.Local.iCnt).PATH!FieldVal,V.DataTable.dtLinkDistinct(V.Local.iCnt).FILE!FieldVal,V.Local.sFile)
+	F.Intrinsic.task.ShellExec(V.Caller.Handle,"PRINT",V.local.sFile,"","",5)
+F.Intrinsic.Control.Next(V.Local.iCnt)
+	
+F.Data.DataTable.Close("dtLinkDistinct")
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Caller.ScriptFile,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.LotInfoCheck.End
